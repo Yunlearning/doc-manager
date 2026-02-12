@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+.next/
+out/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Storage (keep structure, ignore files)
+backend/storage/documents/*
+!backend/storage/documents/.gitkeep
+backend/storage/temp/
+
+# Prisma
+backend/prisma/migrations/**/migration_lock.toml
+
+# Test coverage
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
