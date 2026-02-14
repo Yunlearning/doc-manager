@@ -1,15 +1,28 @@
 # 四階文件管理系統 (Four-Tier Document Management System)
 
-一個支援 ISO 27001、ISO 9001 等多種驗證標準的四階文件管理平台。
+一個支援 ISO 27001、ISO 9001 等多種驗證標準的四階文件管理平台，具備完整的認證授權與權限管理機制。
 
 ## 功能特色
 
+### 核心功能
 - 🏢 **多專案管理** — 可建立不同驗證標準的專案（ISO 27001、ISO 9001 等）
 - 🌳 **四階樹狀結構** — 視覺化的四階文件層級（品質手冊 → 程序書 → 作業指導書 → 表單/紀錄）
 - 📤 **非同步上傳** — 透過 BullMQ + Redis 佇列實現非阻塞檔案上傳
 - 📥 **串流下載** — 使用 Node.js Stream 實現非阻塞檔案下載
 - 🔄 **即時切換** — Dashboard 快速切換不同專案
 - ✅ **表單驗證** — 前後端皆使用 Zod 進行資料驗證
+
+### 認證與授權
+- 🔐 **JWT 認證** — 安全的 Token 驗證機制
+- 👥 **角色管理** — Admin（管理員）與 User（一般用戶）
+- 🔑 **權限控制** — 細粒度權限（上傳、下載、建立專案、刪除文件）
+- 🛡️ **OWASP 合規** — bcrypt 密碼加密、登入錯誤次數限制、帳號鎖定
+- 📊 **登入追蹤** — 記錄 IP、位置、時間、瀏覽器資訊
+- 🎨 **主題切換** — 支援暗色/亮色/系統預設主題
+
+### 管理功能
+- 👤 **個人資料** — 修改姓名、變更密碼、查看登入歷史
+- 🔧 **用戶管理** — 管理員可編輯用戶權限、停用帳號、查看登入紀錄
 
 ## 技術堆疊
 
@@ -18,7 +31,10 @@
 | **後端** | Node.js + TypeScript + Express |
 | **資料庫** | PostgreSQL 15 + Prisma ORM |
 | **佇列** | BullMQ + Redis 7 |
-| **前端** | Next.js 14 + TypeScript + Material UI |
+| **認證** | JWT + bcrypt |
+| **安全** | Helmet + Rate Limiting |
+| **前端** | Next.js 16 + TypeScript + Material UI v7 |
+| **狀態管理** | React Context API |
 | **驗證** | Zod (前後端共用) |
 | **測試** | Jest + Supertest |
 | **容器** | Docker Compose |
@@ -36,7 +52,14 @@ docker-compose up -d
 ```bash
 cd backend
 npm install
-npx prisma migrate dev --name init
+
+# 執行資料庫遷移
+npx prisma migrate dev
+
+# 建立測試資料（2 個用戶 + ISO 27001 專案 + 4 階文件）
+npx prisma db seed
+
+# 啟動後端
 npm run dev
 ```
 
@@ -52,24 +75,76 @@ npm run dev
 
 前端啟動於 http://localhost:3000
 
+### 4. 登入測試
+
+開啟 http://localhost:3000/login，使用以下測試帳號：
+
+| 角色 | Email | 密碼 | 權限 |
+|------|-------|------|------|
+| 管理員 | admin@docmgr.com | Admin@123 | 完整權限 |
+| 一般用戶 | user@docmgr.com | User@123 | 僅唯讀 |
+
 ## API 端點
 
-| 方法 | 端點 | 說明 |
-|------|------|------|
-| GET | `/api/projects` | 取得所有專案 |
-| POST | `/api/projects` | 建立專案 |
-| GET | `/api/projects/:id` | 取得專案詳情 |
-| PUT | `/api/projects/:id` | 更新專案 |
-| DELETE | `/api/projects/:id` | 刪除專案 |
-| GET | `/api/projects/:id/tree` | 取得四階樹狀結構 |
-| GET | `/api/tiers?projectId=` | 取得階層列表 |
-| POST | `/api/tiers` | 建立階層節點 |
-| PUT | `/api/tiers/:id` | 更新階層節點 |
-| DELETE | `/api/tiers/:id` | 刪除階層節點 |
-| POST | `/api/documents/upload` | 上傳文件（非同步） |
-| GET | `/api/documents/jobs/:jobId` | 查詢上傳進度 |
-| GET | `/api/documents/:id/download` | 下載文件（串流） |
-| DELETE | `/api/documents/:id` | 刪除文件 |
+### 認證 (`/api/auth`)
+
+| 方法 | 端點 | 說明 | 權限 |
+|------|------|------|------|
+| POST | `/auth/register` | 註冊新用戶 | 公開 |
+| POST | `/auth/login` | 登入（限制 5 次/15 分鐘） | 公開 |
+| GET | `/auth/me` | 取得當前用戶資訊 | 需登入 |
+| PUT | `/auth/profile` | 更新個人資料 | 需登入 |
+| PUT | `/auth/password` | 變更密碼 | 需登入 |
+| GET | `/auth/login-logs` | 取得登入歷史 | 需登入 |
+
+### 管理員 (`/api/admin`)
+
+| 方法 | 端點 | 說明 | 權限 |
+|------|------|------|------|
+| GET | `/admin/users` | 取得所有用戶 | Admin |
+| PUT | `/admin/users/:id/permissions` | 編輯用戶權限 | Admin |
+| PATCH | `/admin/users/:id/toggle` | 停用/啟用用戶 | Admin |
+| GET | `/admin/users/:id/login-logs` | 查看用戶登入紀錄 | Admin |
+
+### 專案 (`/api/projects`)
+
+| 方法 | 端點 | 說明 | 權限 |
+|------|------|------|------|
+| GET | `/projects` | 取得所有專案 | 需登入 |
+| POST | `/projects` | 建立專案 | CREATE_PROJECT |
+| GET | `/projects/:id` | 取得專案詳情 | 需登入 |
+| PUT | `/projects/:id` | 更新專案 | CREATE_PROJECT |
+| DELETE | `/projects/:id` | 刪除專案 | CREATE_PROJECT |
+| GET | `/projects/:id/tree` | 取得四階樹狀結構 | 需登入 |
+
+### 階層 (`/api/tiers`)
+
+| 方法 | 端點 | 說明 | 權限 |
+|------|------|------|------|
+| GET | `/tiers?projectId=` | 取得階層列表 | 需登入 |
+| POST | `/tiers` | 建立階層節點 | CREATE_PROJECT |
+| PUT | `/tiers/:id` | 更新階層節點 | CREATE_PROJECT |
+| DELETE | `/tiers/:id` | 刪除階層節點 | CREATE_PROJECT |
+
+### 文件 (`/api/documents`)
+
+| 方法 | 端點 | 說明 | 權限 |
+|------|------|------|------|
+| POST | `/documents/upload` | 上傳文件（非同步） | UPLOAD |
+| GET | `/documents/jobs/:jobId` | 查詢上傳進度 | 需登入 |
+| GET | `/documents/:id/download` | 下載文件（串流） | DOWNLOAD |
+| DELETE | `/documents/:id` | 刪除文件 | DELETE_DOCUMENT |
+
+## 權限系統
+
+| 權限 | 說明 |
+|------|------|
+| `UPLOAD` | 上傳文件至任意階層 |
+| `DOWNLOAD` | 下載文件檔案 |
+| `CREATE_PROJECT` | 建立專案、新增/修改階層結構 |
+| `DELETE_DOCUMENT` | 刪除文件 |
+
+> **注意**：Admin 角色擁有所有權限，一般用戶預設為唯讀（僅能瀏覽專案與文件列表）。
 
 ## 測試
 
@@ -84,25 +159,53 @@ npm test
 doc-manger/
 ├── docker-compose.yml
 ├── backend/
-│   ├── prisma/schema.prisma
+│   ├── prisma/
+│   │   ├── schema.prisma      # 資料庫 Schema（User, Role, Permission, LoginLog）
+│   │   └── seed.ts            # 測試資料種子
 │   ├── src/
 │   │   ├── index.ts
-│   │   ├── config/          # DB & Redis 設定
-│   │   ├── routes/          # API 路由
-│   │   ├── controllers/     # 請求處理
-│   │   ├── services/        # 業務邏輯
-│   │   ├── queues/          # BullMQ 佇列
-│   │   ├── jobs/            # 非同步工作
-│   │   ├── middlewares/     # 中介層
-│   │   └── validators/      # Zod 驗證
-│   ├── storage/documents/   # 本地檔案儲存
-│   └── __tests__/           # Jest 測試
+│   │   ├── config/            # DB & Redis 設定
+│   │   ├── routes/            # API 路由（auth, admin, projects, tiers, documents）
+│   │   ├── controllers/       # 請求處理
+│   │   ├── services/          # 業務邏輯（authService, documentService 等）
+│   │   ├── queues/            # BullMQ 佇列
+│   │   ├── jobs/              # 非同步工作（uploadWorker）
+│   │   ├── middlewares/       # 中介層（authenticate, rateLimiter, errorHandler）
+│   │   └── validators/        # Zod 驗證
+│   ├── storage/documents/     # 本地檔案儲存
+│   └── __tests__/             # Jest 測試
 └── frontend/
     └── src/
-        ├── app/             # Next.js 頁面
-        ├── components/      # React 元件
-        ├── hooks/           # SWR 資料 Hook
-        ├── lib/             # API 客戶端
-        ├── types/           # TypeScript 型別
-        └── validators/      # Zod 驗證
+        ├── app/               # Next.js 頁面（login, profile, admin, dashboard）
+        ├── components/        # React 元件（Header, DocumentTree, DocumentTable）
+        ├── contexts/          # Context API（AuthContext, ThemeContext）
+        ├── hooks/             # SWR 資料 Hook
+        ├── lib/               # API 客戶端（axios + JWT interceptor）
+        ├── types/             # TypeScript 型別（User, Permission, LoginLog）
+        └── validators/        # Zod 驗證
 ```
+
+## 環境變數
+
+### Backend (`.env`)
+
+```env
+DATABASE_URL="postgresql://postgres:password@localhost:5433/docmgr?schema=public"
+REDIS_HOST=localhost
+REDIS_PORT=6379
+JWT_SECRET=your-super-secret-jwt-key-change-in-production
+PORT=3001
+```
+
+## 安全性
+
+- ✅ **密碼加密**：使用 bcrypt (salt rounds: 10)
+- ✅ **JWT Token**：有效期 7 天
+- ✅ **登入限制**：5 次錯誤後鎖定帳號
+- ✅ **Rate Limiting**：15 分鐘內最多 5 次登入嘗試
+- ✅ **Helmet**：設定安全 HTTP headers
+- ✅ **輸入驗證**：前後端皆使用 Zod 驗證
+
+## 授權條款
+
+MIT License

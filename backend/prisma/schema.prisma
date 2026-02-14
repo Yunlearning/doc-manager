@@ -7,13 +7,74 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ── Auth Models ──────────────────────────────────────
+
+enum Role {
+  ADMIN
+  USER
+}
+
+enum Permission {
+  UPLOAD
+  DOWNLOAD
+  CREATE_PROJECT
+  DELETE_DOCUMENT
+}
+
+model User {
+  id             String    @id @default(uuid()) @db.Uuid
+  email          String    @unique @db.VarChar(255)
+  password       String    @db.VarChar(255)
+  name           String    @db.VarChar(100)
+  role           Role      @default(USER)
+  isActive       Boolean   @default(true) @map("is_active")
+  failedAttempts Int       @default(0) @map("failed_attempts")
+  lockedUntil    DateTime? @map("locked_until")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  permissions UserPermission[]
+  loginLogs   LoginLog[]
+
+  @@map("users")
+}
+
+model UserPermission {
+  id         String     @id @default(uuid()) @db.Uuid
+  userId     String     @map("user_id") @db.Uuid
+  permission Permission
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permission])
+  @@map("user_permissions")
+}
+
+model LoginLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  ipAddress String   @map("ip_address") @db.VarChar(45)
+  userAgent String   @map("user_agent") @db.Text
+  location  String?  @db.VarChar(255)
+  loginAt   DateTime @default(now()) @map("login_at")
+  success   Boolean
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([loginAt])
+  @@map("login_logs")
+}
+
+// ── Business Models ──────────────────────────────────
+
 model Project {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String   @db.VarChar(255)
-  description String?  @db.Text
-  standardType String  @map("standard_type") @db.VarChar(100)
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String   @db.VarChar(255)
+  description  String?  @db.Text
+  standardType String   @map("standard_type") @db.VarChar(100)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   tiers DocumentTier[]
 
@@ -29,9 +90,9 @@ model DocumentTier {
   sortOrder Int      @default(0) @map("sort_order")
   createdAt DateTime @default(now()) @map("created_at")
 
-  project  Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  parent   DocumentTier? @relation("TierHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
-  children DocumentTier[] @relation("TierHierarchy")
+  project   Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent    DocumentTier?  @relation("TierHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children  DocumentTier[] @relation("TierHierarchy")
   documents Document[]
 
   @@index([projectId])
