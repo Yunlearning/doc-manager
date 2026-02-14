@@ -61,11 +61,15 @@ describe('TierService', () => {
                         {
                             id: 'doc1',
                             title: 'Test Doc',
-                            fileName: 'test.pdf',
-                            mimeType: 'application/pdf',
-                            fileSize: BigInt(1024),
-                            version: 'v1.0',
-                            uploadedAt: new Date(),
+                            currentVersion: 1,
+                            createdAt: new Date(),
+                            versions: [
+                                {
+                                    fileName: 'test.pdf',
+                                    mimeType: 'application/pdf',
+                                    fileSize: BigInt(1024),
+                                },
+                            ],
                         },
                     ],
                 },
