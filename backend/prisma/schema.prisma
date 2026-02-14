@@ -33,8 +33,10 @@ model User {
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  permissions UserPermission[]
-  loginLogs   LoginLog[]
+  permissions      UserPermission[]
+  loginLogs        LoginLog[]
+  uploadedDocuments Document[]       @relation("DocumentUploader")
+  documentVersions  DocumentVersion[] @relation("VersionUploader")
 
   @@map("users")
 }
@@ -101,19 +103,39 @@ model DocumentTier {
 }
 
 model Document {
-  id         String   @id @default(uuid()) @db.Uuid
-  tierId     String   @map("tier_id") @db.Uuid
-  title      String   @db.VarChar(500)
-  fileName   String   @map("file_name") @db.VarChar(500)
-  filePath   String   @map("file_path") @db.VarChar(1000)
-  mimeType   String   @map("mime_type") @db.VarChar(255)
-  fileSize   BigInt   @map("file_size")
-  version    String   @default("v1.0") @db.VarChar(20)
-  uploadedAt DateTime @default(now()) @map("uploaded_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  id              String   @id @default(uuid()) @db.Uuid
+  tierId          String   @map("tier_id") @db.Uuid
+  title           String   @db.VarChar(500)
+  currentVersion  Int      @default(1) @map("current_version")
+  uploadedById    String?  @map("uploaded_by_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
-  tier DocumentTier @relation(fields: [tierId], references: [id], onDelete: Cascade)
+  tier       DocumentTier     @relation(fields: [tierId], references: [id], onDelete: Cascade)
+  uploadedBy User?            @relation("DocumentUploader", fields: [uploadedById], references: [id])
+  versions   DocumentVersion[]
 
   @@index([tierId])
   @@map("documents")
 }
+
+model DocumentVersion {
+  id            String   @id @default(uuid()) @db.Uuid
+  documentId    String   @map("document_id") @db.Uuid
+  versionNumber Int      @map("version_number")
+  title         String   @db.VarChar(500)
+  fileName      String   @map("file_name") @db.VarChar(500)
+  filePath      String   @map("file_path") @db.VarChar(1000)
+  mimeType      String   @map("mime_type") @db.VarChar(255)
+  fileSize      BigInt   @map("file_size")
+  changelog     String?  @db.Text
+  uploadedById  String?  @map("uploaded_by_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  uploadedBy User?    @relation("VersionUploader", fields: [uploadedById], references: [id])
+
+  @@index([documentId])
+  @@map("document_versions")
+}
+

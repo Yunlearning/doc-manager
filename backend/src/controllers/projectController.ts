@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { projectService } from '../services/projectService';
+import { tierService } from '../services/tierService';
 
 export class ProjectController {
     async findAll(_req: Request, res: Response, next: NextFunction) {
@@ -15,6 +16,16 @@ export class ProjectController {
         try {
             const project = await projectService.findById(req.params.id);
             res.json({ success: true, data: project });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async getTree(req: Request, res: Response, next: NextFunction) {
+        try {
+            await projectService.findById(req.params.id);
+            const tree = await tierService.getTree(req.params.id);
+            res.json({ success: true, data: tree });
         } catch (error) {
             next(error);
         }
@@ -49,3 +60,4 @@ export class ProjectController {
 }
 
 export const projectController = new ProjectController();
+

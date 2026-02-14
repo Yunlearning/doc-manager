@@ -11,12 +11,7 @@ export class DocumentController {
                 return;
             }
             const documents = await documentService.findByTier(tierId);
-            // Serialize BigInt to string
-            const serialized = documents.map((doc) => ({
-                ...doc,
-                fileSize: doc.fileSize.toString(),
-            }));
-            res.json({ success: true, data: serialized });
+            res.json({ success: true, data: documents });
         } catch (error) {
             next(error);
         }
@@ -29,13 +24,14 @@ export class DocumentController {
                 return;
             }
 
-            const { tierId, title, version } = req.body;
+            const { tierId, title, documentId, changelog } = req.body;
             if (!tierId || !title) {
-                // Clean up temp file
                 fs.unlinkSync(req.file.path);
                 res.status(400).json({ success: false, message: 'tierId and title are required' });
                 return;
             }
+
+            const userId = (req as any).user?.id;
 
             const result = await documentService.enqueueUpload({
                 tempFilePath: req.file.path,
@@ -44,7 +40,9 @@ export class DocumentController {
                 fileSize: req.file.size,
                 tierId,
                 title,
-                version: version || 'v1.0',
+                documentId: documentId || undefined,
+                changelog: changelog || undefined,
+                userId: userId || undefined,
             });
 
             res.status(202).json({
@@ -53,7 +51,6 @@ export class DocumentController {
                 data: result,
             });
         } catch (error) {
-            // Clean up temp file on error
             if (req.file && fs.existsSync(req.file.path)) {
                 fs.unlinkSync(req.file.path);
             }
@@ -70,6 +67,54 @@ export class DocumentController {
         }
     }
 
+    async getVersionHistory(req: Request, res: Response, next: NextFunction) {
+        try {
+            const versions = await documentService.getHistory(req.params.id);
+            const serialized = versions.map((v) => ({
+                ...v,
+                fileSize: v.fileSize.toString(),
+                uploadedAt: v.createdAt.toISOString(),
+            }));
+            res.json({ success: true, data: serialized });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async revertVersion(req: Request, res: Response, next: NextFunction) {
+        try {
+            const { versionId } = req.body;
+            if (!versionId) {
+                res.status(400).json({ success: false, message: 'versionId is required' });
+                return;
+            }
+
+            const userId = (req as any).user?.id;
+            if (!userId) {
+                res.status(401).json({ success: false, message: 'User not authenticated' });
+                return;
+            }
+
+            const result = await documentService.revert(req.params.id, versionId, userId);
+            const latest = result.versions[0];
+
+            res.json({
+                success: true,
+                data: {
+                    id: result.id,
+                    title: result.title,
+                    currentVersion: result.currentVersion,
+                    fileName: latest?.fileName || '',
+                    mimeType: latest?.mimeType || '',
+                    fileSize: latest ? latest.fileSize.toString() : '0',
+                    changelog: latest?.changelog || null,
+                },
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
     async download(req: Request, res: Response, next: NextFunction) {
         try {
             const { filePath, fileName, mimeType } = await documentService.getFilePath(req.params.id);
@@ -77,7 +122,6 @@ export class DocumentController {
             res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
             res.setHeader('Content-Type', mimeType);
 
-            // Stream the file (non-blocking)
             const stream = fs.createReadStream(filePath);
             stream.pipe(res);
 

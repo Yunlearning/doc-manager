@@ -253,17 +253,26 @@ async function main() {
         const filePath = path.join(storagePath, doc.fileName);
         fs.writeFileSync(filePath, doc.content, 'utf-8');
 
-        await prisma.document.upsert({
-            where: { id: `20000000-0000-0000-0000-00000000000${tiers.indexOf({ tier, doc }) + 1}` },
-            update: {},
-            create: {
+        const document = await prisma.document.create({
+            data: {
                 tierId: tier.id,
+                title: doc.title,
+                currentVersion: 1,
+                uploadedById: admin.id,
+            },
+        });
+
+        await prisma.documentVersion.create({
+            data: {
+                documentId: document.id,
+                versionNumber: 1,
                 title: doc.title,
                 fileName: doc.fileName,
                 filePath,
                 mimeType: 'text/markdown',
-                fileSize: Buffer.byteLength(doc.content, 'utf-8'),
-                version: 'v1.0',
+                fileSize: BigInt(Buffer.byteLength(doc.content, 'utf-8')),
+                changelog: 'Initial version',
+                uploadedById: admin.id,
             },
         });
 

@@ -13,8 +13,14 @@ router.use(authenticate);
 router.get('/', (req, res, next) => documentController.findByTier(req, res, next));
 router.get('/jobs/:jobId', (req, res, next) => documentController.getJobStatus(req, res, next));
 
+// Version history — any logged-in user
+router.get('/:id/versions', (req, res, next) => documentController.getVersionHistory(req, res, next));
+
 // Upload — requires UPLOAD permission
 router.post('/upload', checkPermission('UPLOAD'), upload.single('file'), (req, res, next) => documentController.upload(req, res, next));
+
+// Revert — requires UPLOAD permission
+router.post('/:id/revert', checkPermission('UPLOAD'), (req, res, next) => documentController.revertVersion(req, res, next));
 
 // Download — requires DOWNLOAD permission
 router.get('/:id/download', checkPermission('DOWNLOAD'), (req, res, next) => documentController.download(req, res, next));

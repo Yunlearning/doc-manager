@@ -8,8 +8,10 @@ import { UploadJobData } from '../queues/uploadQueue';
 const STORAGE_BASE = path.resolve(__dirname, '../../storage/documents');
 
 async function processUpload(job: Job<UploadJobData>) {
-    const { tempFilePath, originalName, mimeType, fileSize, tierId, title, version, projectId } =
-        job.data;
+    const {
+        tempFilePath, originalName, mimeType, fileSize,
+        tierId, title, projectId, documentId, changelog, userId,
+    } = job.data;
 
     await job.updateProgress(10);
 
@@ -30,26 +32,88 @@ async function processUpload(job: Job<UploadJobData>) {
 
     await job.updateProgress(60);
 
-    // Create database record
-    const document = await prisma.document.create({
-        data: {
-            tierId,
-            title,
+    if (documentId) {
+        // ── New Version Upload ──────────────────────────
+        const result = await prisma.$transaction(async (tx) => {
+            // Get current document
+            const doc = await tx.document.findUniqueOrThrow({
+                where: { id: documentId },
+            });
+
+            const newVersion = doc.currentVersion + 1;
+
+            // Create new DocumentVersion
+            await tx.documentVersion.create({
+                data: {
+                    documentId,
+                    versionNumber: newVersion,
+                    title,
+                    fileName: originalName,
+                    filePath: finalPath,
+                    mimeType,
+                    fileSize: BigInt(fileSize),
+                    changelog: changelog || null,
+                    uploadedById: userId || null,
+                },
+            });
+
+            // Update Document pointer
+            const updatedDoc = await tx.document.update({
+                where: { id: documentId },
+                data: {
+                    title,
+                    currentVersion: newVersion,
+                    uploadedById: userId || null,
+                },
+            });
+
+            return updatedDoc;
+        });
+
+        await job.updateProgress(100);
+        return {
+            documentId: result.id,
             fileName: originalName,
-            filePath: finalPath,
-            mimeType,
-            fileSize: BigInt(fileSize),
-            version,
-        },
-    });
+            fileSize,
+        };
+    } else {
+        // ── First Upload ────────────────────────────────
+        const result = await prisma.$transaction(async (tx) => {
+            // Create Document (lightweight pointer)
+            const doc = await tx.document.create({
+                data: {
+                    tierId,
+                    title,
+                    currentVersion: 1,
+                    uploadedById: userId || null,
+                },
+            });
 
-    await job.updateProgress(100);
+            // Create DocumentVersion v1
+            await tx.documentVersion.create({
+                data: {
+                    documentId: doc.id,
+                    versionNumber: 1,
+                    title,
+                    fileName: originalName,
+                    filePath: finalPath,
+                    mimeType,
+                    fileSize: BigInt(fileSize),
+                    changelog: changelog || 'Initial version',
+                    uploadedById: userId || null,
+                },
+            });
 
-    return {
-        documentId: document.id,
-        fileName: originalName,
-        fileSize,
-    };
+            return doc;
+        });
+
+        await job.updateProgress(100);
+        return {
+            documentId: result.id,
+            fileName: originalName,
+            fileSize,
+        };
+    }
 }
 
 export const uploadWorker = new Worker('document-upload', processUpload, {

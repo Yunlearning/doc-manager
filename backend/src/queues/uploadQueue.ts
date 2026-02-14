@@ -21,6 +21,9 @@ export interface UploadJobData {
     fileSize: number;
     tierId: string;
     title: string;
-    version: string;
     projectId: string;
+    // Version Table fields
+    documentId?: string;  // If present, this is a new version upload
+    changelog?: string;
+    userId?: string;      // Uploader tracking
 }

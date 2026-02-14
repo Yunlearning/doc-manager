@@ -36,15 +36,21 @@ export class TierService {
             orderBy: [{ tierLevel: 'asc' }, { sortOrder: 'asc' }],
             include: {
                 documents: {
-                    orderBy: { uploadedAt: 'desc' },
+                    orderBy: { updatedAt: 'desc' },
                     select: {
                         id: true,
                         title: true,
-                        fileName: true,
-                        mimeType: true,
-                        fileSize: true,
-                        version: true,
-                        uploadedAt: true,
+                        currentVersion: true,
+                        createdAt: true,
+                        versions: {
+                            orderBy: { versionNumber: 'desc' },
+                            take: 1,
+                            select: {
+                                fileName: true,
+                                mimeType: true,
+                                fileSize: true,
+                            },
+                        },
                     },
                 },
             },
@@ -59,10 +65,18 @@ export class TierService {
         tiers.forEach((tier: TierWithDocs) => {
             tierMap.set(tier.id, {
                 ...tier,
-                documents: tier.documents.map((doc: any) => ({
-                    ...doc,
-                    fileSize: doc.fileSize.toString(),
-                })),
+                documents: tier.documents.map((doc: any) => {
+                    const latest = doc.versions?.[0];
+                    return {
+                        id: doc.id,
+                        title: doc.title,
+                        currentVersion: doc.currentVersion,
+                        fileName: latest?.fileName || '',
+                        mimeType: latest?.mimeType || '',
+                        fileSize: latest ? latest.fileSize.toString() : '0',
+                        uploadedAt: doc.createdAt?.toISOString?.() || doc.createdAt,
+                    };
+                }),
                 children: [],
             });
         });
