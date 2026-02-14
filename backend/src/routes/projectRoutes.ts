@@ -13,6 +13,7 @@ router.use(authenticate);
 // Read — any logged-in user
 router.get('/', (req, res, next) => projectController.findAll(req, res, next));
 router.get('/:id', (req, res, next) => projectController.findById(req, res, next));
+router.get('/:id/tree', (req, res, next) => projectController.getTree(req, res, next));
 
 // Write — requires CREATE_PROJECT permission
 router.post('/', checkPermission('CREATE_PROJECT'), validate(createProjectSchema), (req, res, next) => projectController.create(req, res, next));

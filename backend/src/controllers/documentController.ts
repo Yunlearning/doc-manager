@@ -29,7 +29,7 @@ export class DocumentController {
                 return;
             }
 
-            const { tierId, title, version } = req.body;
+            const { tierId, title, documentId, changelog } = req.body;
             if (!tierId || !title) {
                 // Clean up temp file
                 fs.unlinkSync(req.file.path);
@@ -44,7 +44,9 @@ export class DocumentController {
                 fileSize: req.file.size,
                 tierId,
                 title,
-                version: version || 'v1.0',
+                documentId, // Optional: for uploading new version
+                changelog,
+                uploadedById: req.user.id, // Track uploader
             });
 
             res.status(202).json({
@@ -70,9 +72,42 @@ export class DocumentController {
         }
     }
 
+    async getHistory(req: Request, res: Response, next: NextFunction) {
+        try {
+            const id = req.params.id as string;
+            const history = await documentService.getHistory(id);
+            // Serialize BigInt
+            const serialized = history.map((snap: any) => ({
+                ...snap,
+                fileSize: snap.fileSize.toString(),
+            }));
+            res.json({ success: true, data: serialized });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async revert(req: Request, res: Response, next: NextFunction) {
+        try {
+            const { snapshotId } = req.body;
+            const id = req.params.id as string;
+
+            if (!snapshotId) {
+                res.status(400).json({ success: false, message: 'snapshotId is required' });
+                return;
+            }
+
+            const result = await documentService.revert(id, snapshotId, req.user!.id);
+            res.json({ success: true, data: { ...result, fileSize: result.fileSize.toString() } });
+        } catch (error) {
+            next(error);
+        }
+    }
+
     async download(req: Request, res: Response, next: NextFunction) {
         try {
-            const { filePath, fileName, mimeType } = await documentService.getFilePath(req.params.id);
+            const id = req.params.id as string;
+            const { filePath, fileName, mimeType } = await documentService.getFilePath(id);
 
             res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
             res.setHeader('Content-Type', mimeType);

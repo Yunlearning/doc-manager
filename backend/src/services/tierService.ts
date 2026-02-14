@@ -43,7 +43,7 @@ export class TierService {
                         fileName: true,
                         mimeType: true,
                         fileSize: true,
-                        version: true,
+                        currentVersion: true,
                         uploadedAt: true,
                     },
                 },

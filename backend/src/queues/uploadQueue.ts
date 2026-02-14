@@ -21,6 +21,8 @@ export interface UploadJobData {
     fileSize: number;
     tierId: string;
     title: string;
-    version: string;
     projectId: string;
+    documentId?: string; // If present, this is a new version of an existing document
+    changelog?: string;
+    uploadedById: string;
 }

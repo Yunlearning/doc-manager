@@ -16,6 +16,12 @@ router.get('/jobs/:jobId', (req, res, next) => documentController.getJobStatus(r
 // Upload — requires UPLOAD permission
 router.post('/upload', checkPermission('UPLOAD'), upload.single('file'), (req, res, next) => documentController.upload(req, res, next));
 
+// History — any logged-in user
+router.get('/:id/versions', (req, res, next) => documentController.getHistory(req, res, next));
+
+// Revert — requires UPLOAD permission (treating revert as update)
+router.post('/:id/revert', checkPermission('UPLOAD'), (req, res, next) => documentController.revert(req, res, next));
+
 // Download — requires DOWNLOAD permission
 router.get('/:id/download', checkPermission('DOWNLOAD'), (req, res, next) => documentController.download(req, res, next));
 

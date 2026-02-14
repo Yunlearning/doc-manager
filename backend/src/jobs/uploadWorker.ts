@@ -8,7 +8,7 @@ import { UploadJobData } from '../queues/uploadQueue';
 const STORAGE_BASE = path.resolve(__dirname, '../../storage/documents');
 
 async function processUpload(job: Job<UploadJobData>) {
-    const { tempFilePath, originalName, mimeType, fileSize, tierId, title, version, projectId } =
+    const { tempFilePath, originalName, mimeType, fileSize, tierId, title, projectId, documentId, changelog, uploadedById } =
         job.data;
 
     await job.updateProgress(10);
@@ -30,23 +30,71 @@ async function processUpload(job: Job<UploadJobData>) {
 
     await job.updateProgress(60);
 
-    // Create database record
-    const document = await prisma.document.create({
-        data: {
-            tierId,
-            title,
-            fileName: originalName,
-            filePath: finalPath,
-            mimeType,
-            fileSize: BigInt(fileSize),
-            version,
-        },
-    });
+    let docResult;
+
+    if (documentId) {
+        // New Version Upload: Snapshot current -> Update Doc
+        const currentDoc = await prisma.document.findUnique({
+            where: { id: documentId },
+        });
+
+        if (!currentDoc) {
+            throw new Error('Document not found for version update');
+        }
+
+        // Transaction to ensure atomicity
+        docResult = await prisma.$transaction(async (tx) => {
+            // 1. Create snapshot of current state
+            await tx.documentSnapshot.create({
+                data: {
+                    documentId: currentDoc.id,
+                    version: currentDoc.currentVersion,
+                    title: currentDoc.title,
+                    fileName: currentDoc.fileName,
+                    filePath: currentDoc.filePath,
+                    mimeType: currentDoc.mimeType,
+                    fileSize: currentDoc.fileSize,
+                    uploadedById: currentDoc.uploadedById,
+                    changelog: null, // Note: We don't have changelog on Document model yet.
+                }
+            });
+
+            // 2. Update document with new content and increment version
+            return await tx.document.update({
+                where: { id: documentId },
+                data: {
+                    title: title,
+                    fileName: originalName,
+                    filePath: finalPath,
+                    mimeType: mimeType,
+                    fileSize: BigInt(fileSize),
+                    currentVersion: { increment: 1 },
+                    uploadedById: uploadedById,
+                    // changelog: changelog // TODO: Add changelog to Document model
+                }
+            });
+        });
+
+    } else {
+        // New Document
+        docResult = await prisma.document.create({
+            data: {
+                tierId,
+                title,
+                fileName: originalName,
+                filePath: finalPath,
+                mimeType,
+                fileSize: BigInt(fileSize),
+                currentVersion: 1,
+                uploadedById: uploadedById,
+            },
+        });
+    }
 
     await job.updateProgress(100);
 
     return {
-        documentId: document.id,
+        documentId: docResult.id,
         fileName: originalName,
         fileSize,
     };

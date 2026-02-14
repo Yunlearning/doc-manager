@@ -263,7 +263,8 @@ async function main() {
                 filePath,
                 mimeType: 'text/markdown',
                 fileSize: Buffer.byteLength(doc.content, 'utf-8'),
-                version: 'v1.0',
+                currentVersion: 1,
+                changelog: 'Initial version',
             },
         });
 

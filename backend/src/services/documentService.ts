@@ -2,6 +2,7 @@ import prisma from '../config/database';
 import { AppError } from '../middlewares/errorHandler';
 import { uploadQueue, UploadJobData } from '../queues/uploadQueue';
 import fs from 'fs';
+import path from 'path';
 
 export class DocumentService {
     async findByTier(tierId: string) {
@@ -14,9 +15,12 @@ export class DocumentService {
                 fileName: true,
                 mimeType: true,
                 fileSize: true,
-                version: true,
+                currentVersion: true,
                 uploadedAt: true,
                 updatedAt: true,
+                uploadedBy: {
+                    select: { name: true, email: true }
+                }
             },
         });
     }
@@ -36,7 +40,9 @@ export class DocumentService {
         fileSize: number;
         tierId: string;
         title: string;
-        version: string;
+        documentId?: string;
+        changelog?: string;
+        uploadedById: string;
     }) {
         // Validate tier exists and get project ID
         const tier = await prisma.documentTier.findUnique({
@@ -48,6 +54,19 @@ export class DocumentService {
             throw new AppError(404, 'Tier not found');
         }
 
+        // If documentId is provided, verify it exists and belongs to the tier
+        if (data.documentId) {
+            const doc = await prisma.document.findUnique({
+                where: { id: data.documentId },
+            });
+            if (!doc) {
+                throw new AppError(404, 'Document not found');
+            }
+            if (doc.tierId !== data.tierId) {
+                throw new AppError(400, 'Document does not belong to the specified tier');
+            }
+        }
+
         const jobData: UploadJobData = {
             ...data,
             projectId: tier.projectId,
@@ -55,6 +74,83 @@ export class DocumentService {
 
         const job = await uploadQueue.add('upload', jobData);
         return { jobId: job.id };
+    }
+
+    async getHistory(documentId: string) {
+        return prisma.documentSnapshot.findMany({
+            where: { documentId },
+            orderBy: { version: 'desc' },
+            include: {
+                uploadedBy: {
+                    select: { name: true, email: true },
+                },
+            },
+        });
+    }
+
+    async revert(documentId: string, snapshotId: string, userId: string) {
+        const snapshot = await prisma.documentSnapshot.findUnique({
+            where: { id: snapshotId },
+        });
+
+        if (!snapshot || snapshot.documentId !== documentId) {
+            throw new AppError(404, 'Snapshot not found');
+        }
+
+        const doc = await prisma.document.findUnique({
+            where: { id: documentId },
+        });
+
+        if (!doc) {
+            throw new AppError(404, 'Document not found');
+        }
+
+        // To revert, we create a new version based on the snapshot
+        // 1. Snapshot the current state
+        await prisma.documentSnapshot.create({
+            data: {
+                documentId: doc.id,
+                version: doc.currentVersion,
+                title: doc.title,
+                fileName: doc.fileName,
+                filePath: doc.filePath,
+                mimeType: doc.mimeType,
+                fileSize: doc.fileSize,
+                uploadedById: doc.uploadedById,
+                changelog: `Revert to version ${snapshot.version}`,
+            },
+        });
+
+        // 2. Update document with snapshot content (new version)
+        // Note: We use the snapshot's file path. If we wanted full separation, we'd copy the file.
+        // For now, sharing the file path is efficient, but deleting one might affect others if not careful.
+        // A robust system would copy the file to a new path. ensuring immutability.
+        // Let's copy the file to a new path to be safe and consistent with "new version" logic.
+
+        const newFileName = `revert_${Date.now()}_${snapshot.fileName}`;
+        const newFilePath = path.join(path.dirname(snapshot.filePath), newFileName);
+
+        if (fs.existsSync(snapshot.filePath)) {
+            await fs.promises.copyFile(snapshot.filePath, newFilePath);
+        } else {
+            throw new AppError(500, 'Original snapshot file missing on disk');
+        }
+
+        const updatedDoc = await prisma.document.update({
+            where: { id: documentId },
+            data: {
+                title: snapshot.title,
+                fileName: snapshot.fileName,
+                filePath: newFilePath,
+                mimeType: snapshot.mimeType,
+                fileSize: snapshot.fileSize,
+                currentVersion: doc.currentVersion + 1,
+                uploadedById: userId, // The user performing the revert is the "uploader" of this new version
+                changelog: `Reverted to version ${snapshot.version}`,
+            },
+        });
+
+        return updatedDoc;
     }
 
     async getJobStatus(jobId: string) {

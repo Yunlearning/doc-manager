@@ -20,6 +20,17 @@ export class ProjectController {
         }
     }
 
+    async getTree(req: Request, res: Response, next: NextFunction) {
+        try {
+            // Check if project exists first
+            await projectService.findById(req.params.id);
+            const tree = await import('../services/tierService').then((m) => m.tierService.getTree(req.params.id));
+            res.json({ success: true, data: tree });
+        } catch (error) {
+            next(error);
+        }
+    }
+
     async create(req: Request, res: Response, next: NextFunction) {
         try {
             const project = await projectService.create(req.body);

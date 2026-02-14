@@ -12,6 +12,11 @@
 - 🔄 **即時切換** — Dashboard 快速切換不同專案
 - ✅ **表單驗證** — 前後端皆使用 Zod 進行資料驗證
 
+### 版本管理 (Snapshot Strategy)
+- 📸 **快照機制** — 每次更新自動建立舊版本快照 (Snapshot)，確保主文件始終為最新版
+- 🔄 **版本回滾** — 支援一鍵回滾特定快照，回滾操作視為新版本 (Forward-only)
+- 📝 **更新說明** — 支援版本 Changelog 記錄
+
 ### 認證與授權
 - 🔐 **JWT 認證** — 安全的 Token 驗證機制
 - 👥 **角色管理** — Admin（管理員）與 User（一般用戶）
@@ -132,6 +137,8 @@ npm run dev
 |------|------|------|------|
 | POST | `/documents/upload` | 上傳文件（非同步） | UPLOAD |
 | GET | `/documents/jobs/:jobId` | 查詢上傳進度 | 需登入 |
+| GET | `/documents/:id/versions` | 取得版本歷史 | 需登入 |
+| POST | `/documents/:id/revert` | 回滾到指定版本 | UPLOAD |
 | GET | `/documents/:id/download` | 下載文件（串流） | DOWNLOAD |
 | DELETE | `/documents/:id` | 刪除文件 | DELETE_DOCUMENT |
 
