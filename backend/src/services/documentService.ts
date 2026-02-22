@@ -1,8 +1,8 @@
 import prisma from '../config/database';
 import { AppError } from '../middlewares/errorHandler';
 import { uploadQueue, UploadJobData } from '../queues/uploadQueue';
-import fs from 'fs';
 import path from 'path';
+import { storageService } from './storageService';
 
 export class DocumentService {
     async findByTier(tierId: string) {
@@ -167,10 +167,11 @@ export class DocumentService {
 
         const newVersionNumber = doc.currentVersion + 1;
 
-        // Copy the target version's file to a new path
+        // Copy the target version's file to a new object key
         const newFileName = `revert-v${newVersionNumber}-${path.basename(targetVersion.filePath)}`;
-        const newFilePath = path.join(path.dirname(targetVersion.filePath), newFileName);
-        await fs.promises.copyFile(targetVersion.filePath, newFilePath);
+        const dirKey = path.dirname(targetVersion.filePath).replace(/\\/g, '/');
+        const newObjectKey = `${dirKey}/${newFileName}`;
+        await storageService.copy(targetVersion.filePath, newObjectKey);
 
         // Create new DocumentVersion for the revert
         return prisma.$transaction(async (tx) => {
@@ -180,7 +181,7 @@ export class DocumentService {
                     versionNumber: newVersionNumber,
                     title: targetVersion.title,
                     fileName: targetVersion.fileName,
-                    filePath: newFilePath,
+                    filePath: newObjectKey,
                     mimeType: targetVersion.mimeType,
                     fileSize: targetVersion.fileSize,
                     changelog: `Reverted to version ${targetVersion.versionNumber}`,
@@ -212,7 +213,7 @@ export class DocumentService {
         });
     }
 
-    async getFilePath(id: string) {
+    async getFileInfo(id: string) {
         // Get document with latest version
         const doc = await prisma.document.findUnique({
             where: { id },
@@ -233,12 +234,13 @@ export class DocumentService {
             throw new AppError(404, 'No version found for this document');
         }
 
-        if (!fs.existsSync(latestVersion.filePath)) {
-            throw new AppError(404, 'File not found on disk');
+        const fileExists = await storageService.exists(latestVersion.filePath);
+        if (!fileExists) {
+            throw new AppError(404, 'File not found in storage');
         }
 
         return {
-            filePath: latestVersion.filePath,
+            objectKey: latestVersion.filePath,
             fileName: latestVersion.fileName,
             mimeType: latestVersion.mimeType,
         };
@@ -250,10 +252,12 @@ export class DocumentService {
             where: { documentId: id },
         });
 
-        // Delete files from disk
+        // Delete files from storage
         for (const v of versions) {
-            if (fs.existsSync(v.filePath)) {
-                fs.unlinkSync(v.filePath);
+            try {
+                await storageService.delete(v.filePath);
+            } catch {
+                // Ignore deletion errors (file may already be gone)
             }
         }
 

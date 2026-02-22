@@ -31,17 +31,21 @@ jest.mock('../src/queues/uploadQueue', () => ({
     },
 }));
 
-// ── Mock fs ──────────────────────────────────────────
-jest.mock('fs', () => ({
-    existsSync: jest.fn().mockReturnValue(true),
-    unlinkSync: jest.fn(),
-    promises: {
-        copyFile: jest.fn().mockResolvedValue(undefined),
+// ── Mock storageService ──────────────────────────────
+jest.mock('../src/services/storageService', () => ({
+    storageService: {
+        upload: jest.fn().mockResolvedValue(undefined),
+        download: jest.fn(),
+        copy: jest.fn().mockResolvedValue(undefined),
+        delete: jest.fn().mockResolvedValue(undefined),
+        exists: jest.fn().mockResolvedValue(true),
     },
 }));
 
+import { storageService } from '../src/services/storageService';
+const mockStorageService = storageService as jest.Mocked<typeof storageService>;
+
 import { uploadQueue } from '../src/queues/uploadQueue';
-import fs from 'fs';
 
 describe('DocumentService', () => {
     let service: DocumentService;
@@ -49,6 +53,8 @@ describe('DocumentService', () => {
     beforeEach(() => {
         service = new DocumentService();
         jest.clearAllMocks();
+        // Reset default mock behavior
+        mockStorageService.exists.mockResolvedValue(true);
     });
 
     // ══════════════════════════════════════════════════
@@ -237,7 +243,7 @@ describe('DocumentService', () => {
                 versionNumber: 1,
                 title: 'T',
                 fileName: 'f.pdf',
-                filePath: '/storage/f.pdf',
+                filePath: 'documents/p1/f.pdf',
                 mimeType: 'application/pdf',
                 fileSize: BigInt(1024),
             });
@@ -247,14 +253,14 @@ describe('DocumentService', () => {
             );
         });
 
-        it('should copy file and create new version on successful revert', async () => {
+        it('should copy file via storageService and create new version on successful revert', async () => {
             const targetVersion = {
                 id: 'v1',
                 documentId: 'd1',
                 versionNumber: 1,
                 title: 'Original',
                 fileName: 'original.pdf',
-                filePath: '/storage/p1/original.pdf',
+                filePath: 'documents/p1/original.pdf',
                 mimeType: 'application/pdf',
                 fileSize: BigInt(2048),
             };
@@ -278,8 +284,11 @@ describe('DocumentService', () => {
 
             const result = await service.revert('d1', 'v1', 'u1');
 
-            // File should have been copied
-            expect(fs.promises.copyFile).toHaveBeenCalled();
+            // File should have been copied via storageService
+            expect(mockStorageService.copy).toHaveBeenCalledWith(
+                'documents/p1/original.pdf',
+                'documents/p1/revert-v4-original.pdf',
+            );
 
             // New version should be created with incremented version number
             expect(txMock.documentVersion.create).toHaveBeenCalledWith(
@@ -303,31 +312,31 @@ describe('DocumentService', () => {
     });
 
     // ══════════════════════════════════════════════════
-    // getFilePath — Version Table
+    // getFileInfo — Storage Abstraction
     // ══════════════════════════════════════════════════
-    describe('getFilePath', () => {
+    describe('getFileInfo', () => {
         it('should return file info from latest version', async () => {
             (prisma.document.findUnique as jest.Mock).mockResolvedValue({
                 id: 'd1',
                 versions: [
                     {
-                        filePath: '/storage/test.pdf',
+                        filePath: 'documents/p1/test.pdf',
                         fileName: 'test.pdf',
                         mimeType: 'application/pdf',
                     },
                 ],
             });
-            (fs.existsSync as jest.Mock).mockReturnValue(true);
+            mockStorageService.exists.mockResolvedValue(true);
 
-            const result = await service.getFilePath('d1');
-            expect(result.filePath).toBe('/storage/test.pdf');
+            const result = await service.getFileInfo('d1');
+            expect(result.objectKey).toBe('documents/p1/test.pdf');
             expect(result.fileName).toBe('test.pdf');
         });
 
         it('should throw 404 when document not found', async () => {
             (prisma.document.findUnique as jest.Mock).mockResolvedValue(null);
 
-            await expect(service.getFilePath('missing')).rejects.toThrow('Document not found');
+            await expect(service.getFileInfo('missing')).rejects.toThrow('Document not found');
         });
 
         it('should throw 404 when no versions exist', async () => {
@@ -336,50 +345,49 @@ describe('DocumentService', () => {
                 versions: [],
             });
 
-            await expect(service.getFilePath('d1')).rejects.toThrow('No version found');
+            await expect(service.getFileInfo('d1')).rejects.toThrow('No version found');
         });
 
-        it('should throw 404 when file does not exist on disk', async () => {
+        it('should throw 404 when file does not exist in storage', async () => {
             (prisma.document.findUnique as jest.Mock).mockResolvedValue({
                 id: 'd1',
-                versions: [{ filePath: '/storage/missing.pdf', fileName: 'missing.pdf', mimeType: 'application/pdf' }],
+                versions: [{ filePath: 'documents/p1/missing.pdf', fileName: 'missing.pdf', mimeType: 'application/pdf' }],
             });
-            (fs.existsSync as jest.Mock).mockReturnValue(false);
+            mockStorageService.exists.mockResolvedValue(false);
 
-            await expect(service.getFilePath('d1')).rejects.toThrow('File not found on disk');
+            await expect(service.getFileInfo('d1')).rejects.toThrow('File not found in storage');
         });
     });
 
     // ══════════════════════════════════════════════════
-    // delete — Version Table
+    // delete — Storage Abstraction
     // ══════════════════════════════════════════════════
     describe('delete', () => {
-        it('should delete all version files and the document', async () => {
+        it('should delete all version files via storageService and the document', async () => {
             const versions = [
-                { filePath: '/storage/v1.pdf' },
-                { filePath: '/storage/v2.pdf' },
+                { filePath: 'documents/p1/v1.pdf' },
+                { filePath: 'documents/p1/v2.pdf' },
             ];
             (prisma.documentVersion.findMany as jest.Mock).mockResolvedValue(versions);
-            (fs.existsSync as jest.Mock).mockReturnValue(true);
             (prisma.document.delete as jest.Mock).mockResolvedValue({ id: 'd1' });
 
             await service.delete('d1');
 
-            expect(fs.unlinkSync).toHaveBeenCalledWith('/storage/v1.pdf');
-            expect(fs.unlinkSync).toHaveBeenCalledWith('/storage/v2.pdf');
+            expect(mockStorageService.delete).toHaveBeenCalledWith('documents/p1/v1.pdf');
+            expect(mockStorageService.delete).toHaveBeenCalledWith('documents/p1/v2.pdf');
             expect(prisma.document.delete).toHaveBeenCalledWith({ where: { id: 'd1' } });
         });
 
-        it('should skip files that do not exist on disk', async () => {
+        it('should handle storage deletion errors gracefully', async () => {
             (prisma.documentVersion.findMany as jest.Mock).mockResolvedValue([
-                { filePath: '/storage/gone.pdf' },
+                { filePath: 'documents/p1/gone.pdf' },
             ]);
-            (fs.existsSync as jest.Mock).mockReturnValue(false);
+            mockStorageService.delete.mockRejectedValue(new Error('Not found'));
             (prisma.document.delete as jest.Mock).mockResolvedValue({ id: 'd1' });
 
             await service.delete('d1');
 
-            expect(fs.unlinkSync).not.toHaveBeenCalled();
+            expect(mockStorageService.delete).toHaveBeenCalled();
             expect(prisma.document.delete).toHaveBeenCalled();
         });
     });

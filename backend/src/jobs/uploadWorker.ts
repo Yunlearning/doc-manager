@@ -4,8 +4,7 @@ import path from 'path';
 import { redisConnection } from '../config/redis';
 import prisma from '../config/database';
 import { UploadJobData } from '../queues/uploadQueue';
-
-const STORAGE_BASE = path.resolve(__dirname, '../../storage/documents');
+import { storageService } from '../services/storageService';
 
 async function processUpload(job: Job<UploadJobData>) {
     const {
@@ -15,19 +14,17 @@ async function processUpload(job: Job<UploadJobData>) {
 
     await job.updateProgress(10);
 
-    // Create project directory if not exists
-    const projectDir = path.join(STORAGE_BASE, projectId);
-    await fs.mkdir(projectDir, { recursive: true });
-
-    // Generate unique file name
+    // Generate object key (used as filePath in DB)
     const ext = path.extname(originalName);
     const storedFileName = `${job.id}${ext}`;
-    const finalPath = path.join(projectDir, storedFileName);
+    const objectKey = `documents/${projectId}/${storedFileName}`;
 
     await job.updateProgress(30);
 
-    // Move file from temp to final storage
-    await fs.copyFile(tempFilePath, finalPath);
+    // Upload file from temp to storage backend
+    await storageService.upload(objectKey, tempFilePath);
+
+    // Clean up temp file
     await fs.unlink(tempFilePath);
 
     await job.updateProgress(60);
@@ -49,7 +46,7 @@ async function processUpload(job: Job<UploadJobData>) {
                     versionNumber: newVersion,
                     title,
                     fileName: originalName,
-                    filePath: finalPath,
+                    filePath: objectKey,
                     mimeType,
                     fileSize: BigInt(fileSize),
                     changelog: changelog || null,
@@ -96,7 +93,7 @@ async function processUpload(job: Job<UploadJobData>) {
                     versionNumber: 1,
                     title,
                     fileName: originalName,
-                    filePath: finalPath,
+                    filePath: objectKey,
                     mimeType,
                     fileSize: BigInt(fileSize),
                     changelog: changelog || 'Initial version',
