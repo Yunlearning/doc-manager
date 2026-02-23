@@ -40,7 +40,7 @@ export class DocumentController {
 
             const result = await documentService.enqueueUpload({
                 tempFilePath: req.file.path,
-                originalName: req.file.originalname,
+                originalName: Buffer.from(req.file.originalname, 'latin1').toString('utf8'),
                 mimeType: req.file.mimetype,
                 fileSize: req.file.size,
                 tierId,
