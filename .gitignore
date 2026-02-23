@@ -25,7 +25,7 @@ Thumbs.db
 backend/storage/documents/*
 !backend/storage/documents/.gitkeep
 backend/storage/temp/
-
+backend/src/config/*.json
 # Prisma
 backend/prisma/migrations/**/migration_lock.toml
 

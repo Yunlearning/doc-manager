@@ -9,6 +9,7 @@
 - 🌳 **四階樹狀結構** — 視覺化的四階文件層級（品質手冊 → 程序書 → 作業指導書 → 表單/紀錄）
 - 📤 **非同步上傳** — 透過 BullMQ + Redis 佇列實現非阻塞檔案上傳
 - 📥 **串流下載** — 使用 Node.js Stream 實現非阻塞檔案下載
+- ☁️ **多雲端儲存** — 支援本地、Google Cloud Storage、AWS S3、Azure Blob Storage 四種後端
 - 🔄 **即時切換** — Dashboard 快速切換不同專案
 - ✅ **表單驗證** — 前後端皆使用 Zod 進行資料驗證
 
@@ -31,6 +32,7 @@
 | **後端** | Node.js + TypeScript + Express |
 | **資料庫** | PostgreSQL 15 + Prisma ORM |
 | **佇列** | BullMQ + Redis 7 |
+| **檔案儲存** | Local / GCS / AWS S3 / Azure Blob（可切換） |
 | **認證** | JWT + bcrypt |
 | **安全** | Helmet + Rate Limiting |
 | **前端** | Next.js 16 + TypeScript + Material UI v7 |
@@ -167,12 +169,12 @@ doc-manger/
 │   │   ├── config/            # DB & Redis 設定
 │   │   ├── routes/            # API 路由（auth, admin, projects, tiers, documents）
 │   │   ├── controllers/       # 請求處理
-│   │   ├── services/          # 業務邏輯（authService, documentService 等）
+│   │   ├── services/          # 業務邏輯（authService, documentService, storageService）
 │   │   ├── queues/            # BullMQ 佇列
 │   │   ├── jobs/              # 非同步工作（uploadWorker）
 │   │   ├── middlewares/       # 中介層（authenticate, rateLimiter, errorHandler）
 │   │   └── validators/        # Zod 驗證
-│   ├── storage/documents/     # 本地檔案儲存
+│   ├── storage/documents/     # 本地檔案儲存（STORAGE_PROVIDER=local 時使用）
 │   └── __tests__/             # Jest 測試
 └── frontend/
     └── src/
@@ -195,7 +197,37 @@ REDIS_HOST=localhost
 REDIS_PORT=6379
 JWT_SECRET=your-super-secret-jwt-key-change-in-production
 PORT=3001
+
+# Storage Provider: "local" | "gcs" | "s3" | "azure"
+STORAGE_PROVIDER="local"
+STORAGE_PATH="./storage/documents"
+
+# Google Cloud Storage（STORAGE_PROVIDER=gcs 時需設定）
+GCS_BUCKET=""
+GCS_KEYFILE=""          # Service Account JSON keyfile 路徑
+GCS_PROJECT_ID=""
+
+# AWS S3（STORAGE_PROVIDER=s3 時需設定）
+AWS_S3_BUCKET=""
+AWS_REGION=""
+AWS_ACCESS_KEY_ID=""
+AWS_SECRET_ACCESS_KEY=""
+
+# Azure Blob Storage（STORAGE_PROVIDER=azure 時需設定）
+AZURE_STORAGE_CONNECTION_STRING=""
+AZURE_CONTAINER_NAME=""
 ```
+
+### 雲端儲存切換
+
+系統透過 `STORAGE_PROVIDER` 環境變數切換儲存後端，無需改動程式碼：
+
+| Provider | 值 | 需設定的環境變數 |
+|----------|------|------------------|
+| 本地儲存 | `local` | `STORAGE_PATH` |
+| Google Cloud Storage | `gcs` | `GCS_BUCKET`, `GCS_KEYFILE`, `GCS_PROJECT_ID` |
+| AWS S3 | `s3` | `AWS_S3_BUCKET`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` |
+| Azure Blob Storage | `azure` | `AZURE_STORAGE_CONNECTION_STRING`, `AZURE_CONTAINER_NAME` |
 
 ## 安全性
 

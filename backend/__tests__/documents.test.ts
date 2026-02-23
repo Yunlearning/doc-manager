@@ -1,7 +1,7 @@
 import { DocumentService } from '../src/services/documentService';
 import prisma from '../src/config/database';
 
-// Mock Prisma
+// ── Mock Prisma ──────────────────────────────────────
 jest.mock('../src/config/database', () => ({
     __esModule: true,
     default: {
@@ -17,7 +17,7 @@ jest.mock('../src/config/database', () => ({
     },
 }));
 
-// Mock upload queue
+// ── Mock upload queue ────────────────────────────────
 jest.mock('../src/queues/uploadQueue', () => ({
     uploadQueue: {
         add: jest.fn().mockResolvedValue({ id: 'job-1' }),
@@ -25,14 +25,19 @@ jest.mock('../src/queues/uploadQueue', () => ({
     },
 }));
 
-// Mock fs
-jest.mock('fs', () => ({
-    existsSync: jest.fn().mockReturnValue(true),
-    unlinkSync: jest.fn(),
+// ── Mock storageService ──────────────────────────────
+jest.mock('../src/services/storageService', () => ({
+    storageService: {
+        upload: jest.fn().mockResolvedValue(undefined),
+        download: jest.fn(),
+        delete: jest.fn().mockResolvedValue(undefined),
+        exists: jest.fn().mockResolvedValue(true),
+    },
 }));
 
 import { uploadQueue } from '../src/queues/uploadQueue';
-import fs from 'fs';
+import { storageService } from '../src/services/storageService';
+const mockStorageService = storageService as jest.Mocked<typeof storageService>;
 
 describe('DocumentService', () => {
     let service: DocumentService;
@@ -40,6 +45,8 @@ describe('DocumentService', () => {
     beforeEach(() => {
         service = new DocumentService();
         jest.clearAllMocks();
+        // Reset default mock behavior
+        mockStorageService.exists.mockResolvedValue(true);
     });
 
     describe('findByTier', () => {
@@ -104,11 +111,14 @@ describe('DocumentService', () => {
         });
     });
 
-    describe('getFilePath', () => {
-        it('should return file info for download', async () => {
+    // ══════════════════════════════════════════════════
+    // getFileInfo — Storage Abstraction
+    // ══════════════════════════════════════════════════
+    describe('getFileInfo', () => {
+        it('should return file info when file exists in storage', async () => {
             const mockDoc = {
                 id: 'd1',
-                filePath: '/storage/test.pdf',
+                filePath: 'documents/p1/test.pdf',
                 fileName: 'test.pdf',
                 mimeType: 'application/pdf',
                 tierId: 't1',
@@ -120,17 +130,24 @@ describe('DocumentService', () => {
             };
 
             (prisma.document.findUnique as jest.Mock).mockResolvedValue(mockDoc);
-            (fs.existsSync as jest.Mock).mockReturnValue(true);
+            mockStorageService.exists.mockResolvedValue(true);
 
-            const result = await service.getFilePath('d1');
-            expect(result.filePath).toBe('/storage/test.pdf');
+            const result = await service.getFileInfo('d1');
+            expect(result.objectKey).toBe('documents/p1/test.pdf');
             expect(result.fileName).toBe('test.pdf');
+            expect(mockStorageService.exists).toHaveBeenCalledWith('documents/p1/test.pdf');
         });
 
-        it('should throw 404 when file does not exist on disk', async () => {
+        it('should throw 404 when document not found', async () => {
+            (prisma.document.findUnique as jest.Mock).mockResolvedValue(null);
+
+            await expect(service.getFileInfo('missing')).rejects.toThrow('Document not found');
+        });
+
+        it('should throw 404 when file does not exist in storage', async () => {
             const mockDoc = {
                 id: 'd1',
-                filePath: '/storage/missing.pdf',
+                filePath: 'documents/p1/missing.pdf',
                 fileName: 'missing.pdf',
                 mimeType: 'application/pdf',
                 tierId: 't1',
@@ -142,17 +159,20 @@ describe('DocumentService', () => {
             };
 
             (prisma.document.findUnique as jest.Mock).mockResolvedValue(mockDoc);
-            (fs.existsSync as jest.Mock).mockReturnValue(false);
+            mockStorageService.exists.mockResolvedValue(false);
 
-            await expect(service.getFilePath('d1')).rejects.toThrow('File not found on disk');
+            await expect(service.getFileInfo('d1')).rejects.toThrow('File not found in storage');
         });
     });
 
+    // ══════════════════════════════════════════════════
+    // delete — Storage Abstraction
+    // ══════════════════════════════════════════════════
     describe('delete', () => {
-        it('should delete document and file from disk', async () => {
+        it('should delete file via storageService and document from DB', async () => {
             const mockDoc = {
                 id: 'd1',
-                filePath: '/storage/test.pdf',
+                filePath: 'documents/p1/test.pdf',
                 fileName: 'test.pdf',
                 mimeType: 'application/pdf',
                 tierId: 't1',
@@ -164,12 +184,35 @@ describe('DocumentService', () => {
             };
 
             (prisma.document.findUnique as jest.Mock).mockResolvedValue(mockDoc);
-            (fs.existsSync as jest.Mock).mockReturnValue(true);
             (prisma.document.delete as jest.Mock).mockResolvedValue(mockDoc);
 
             await service.delete('d1');
-            expect(fs.unlinkSync).toHaveBeenCalledWith('/storage/test.pdf');
+            expect(mockStorageService.delete).toHaveBeenCalledWith('documents/p1/test.pdf');
             expect(prisma.document.delete).toHaveBeenCalledWith({ where: { id: 'd1' } });
+        });
+
+        it('should handle storage deletion errors gracefully', async () => {
+            const mockDoc = {
+                id: 'd1',
+                filePath: 'documents/p1/gone.pdf',
+                fileName: 'gone.pdf',
+                mimeType: 'application/pdf',
+                tierId: 't1',
+                title: 'Test',
+                fileSize: BigInt(1024),
+                version: 'v1.0',
+                uploadedAt: new Date(),
+                updatedAt: new Date(),
+            };
+
+            (prisma.document.findUnique as jest.Mock).mockResolvedValue(mockDoc);
+            mockStorageService.delete.mockRejectedValue(new Error('Not found'));
+            (prisma.document.delete as jest.Mock).mockResolvedValue(mockDoc);
+
+            // Should not throw even if storage delete fails
+            await service.delete('d1');
+            expect(mockStorageService.delete).toHaveBeenCalled();
+            expect(prisma.document.delete).toHaveBeenCalled();
         });
     });
 });

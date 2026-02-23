@@ -1,7 +1,7 @@
 import prisma from '../config/database';
 import { AppError } from '../middlewares/errorHandler';
 import { uploadQueue, UploadJobData } from '../queues/uploadQueue';
-import fs from 'fs';
+import { storageService } from './storageService';
 
 export class DocumentService {
     async findByTier(tierId: string) {
@@ -77,15 +77,16 @@ export class DocumentService {
         };
     }
 
-    async getFilePath(id: string) {
+    async getFileInfo(id: string) {
         const doc = await this.findById(id);
 
-        if (!fs.existsSync(doc.filePath)) {
-            throw new AppError(404, 'File not found on disk');
+        const fileExists = await storageService.exists(doc.filePath);
+        if (!fileExists) {
+            throw new AppError(404, 'File not found in storage');
         }
 
         return {
-            filePath: doc.filePath,
+            objectKey: doc.filePath,
             fileName: doc.fileName,
             mimeType: doc.mimeType,
         };
@@ -94,9 +95,11 @@ export class DocumentService {
     async delete(id: string) {
         const doc = await this.findById(id);
 
-        // Delete file from disk
-        if (fs.existsSync(doc.filePath)) {
-            fs.unlinkSync(doc.filePath);
+        // Delete file from storage
+        try {
+            await storageService.delete(doc.filePath);
+        } catch {
+            // Ignore storage deletion errors (file may already be gone)
         }
 
         return prisma.document.delete({ where: { id } });
