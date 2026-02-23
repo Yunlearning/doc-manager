@@ -4,8 +4,7 @@ import path from 'path';
 import { redisConnection } from '../config/redis';
 import prisma from '../config/database';
 import { UploadJobData } from '../queues/uploadQueue';
-
-const STORAGE_BASE = path.resolve(__dirname, '../../storage/documents');
+import { storageService } from '../services/storageService';
 
 async function processUpload(job: Job<UploadJobData>) {
     const { tempFilePath, originalName, mimeType, fileSize, tierId, title, projectId, documentId, changelog, uploadedById } =
@@ -13,19 +12,16 @@ async function processUpload(job: Job<UploadJobData>) {
 
     await job.updateProgress(10);
 
-    // Create project directory if not exists
-    const projectDir = path.join(STORAGE_BASE, projectId);
-    await fs.mkdir(projectDir, { recursive: true });
-
-    // Generate unique file name
+    // Build object key for cloud/local storage
     const ext = path.extname(originalName);
-    const storedFileName = `${job.id}${ext}`;
-    const finalPath = path.join(projectDir, storedFileName);
+    const objectKey = `documents/${projectId}/${job.id}${ext}`;
 
     await job.updateProgress(30);
 
-    // Move file from temp to final storage
-    await fs.copyFile(tempFilePath, finalPath);
+    // Upload file from temp to storage backend
+    await storageService.upload(objectKey, tempFilePath);
+
+    // Clean up temp file
     await fs.unlink(tempFilePath);
 
     await job.updateProgress(60);
@@ -55,7 +51,7 @@ async function processUpload(job: Job<UploadJobData>) {
                     mimeType: currentDoc.mimeType,
                     fileSize: currentDoc.fileSize,
                     uploadedById: currentDoc.uploadedById,
-                    changelog: null, // Note: We don't have changelog on Document model yet.
+                    changelog: null,
                 }
             });
 
@@ -65,12 +61,11 @@ async function processUpload(job: Job<UploadJobData>) {
                 data: {
                     title: title,
                     fileName: originalName,
-                    filePath: finalPath,
+                    filePath: objectKey,
                     mimeType: mimeType,
                     fileSize: BigInt(fileSize),
                     currentVersion: { increment: 1 },
                     uploadedById: uploadedById,
-                    // changelog: changelog // TODO: Add changelog to Document model
                 }
             });
         });
@@ -82,7 +77,7 @@ async function processUpload(job: Job<UploadJobData>) {
                 tierId,
                 title,
                 fileName: originalName,
-                filePath: finalPath,
+                filePath: objectKey,
                 mimeType,
                 fileSize: BigInt(fileSize),
                 currentVersion: 1,

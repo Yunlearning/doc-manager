@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { documentService } from '../services/documentService';
+import { storageService } from '../services/storageService';
 import fs from 'fs';
 
 export class DocumentController {
@@ -107,16 +108,16 @@ export class DocumentController {
     async download(req: Request, res: Response, next: NextFunction) {
         try {
             const id = req.params.id as string;
-            const { filePath, fileName, mimeType } = await documentService.getFilePath(id);
+            const { objectKey, fileName, mimeType } = await documentService.getFileInfo(id);
 
             res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
             res.setHeader('Content-Type', mimeType);
 
-            // Stream the file (non-blocking)
-            const stream = fs.createReadStream(filePath);
+            // Stream the file from storage backend
+            const stream = storageService.download(objectKey);
             stream.pipe(res);
 
-            stream.on('error', (err) => {
+            (stream as NodeJS.ReadableStream).on('error', (err: Error) => {
                 console.error('Stream error:', err);
                 if (!res.headersSent) {
                     res.status(500).json({ success: false, message: 'Error streaming file' });

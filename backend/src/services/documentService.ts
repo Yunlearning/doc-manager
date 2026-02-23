@@ -1,8 +1,8 @@
 import prisma from '../config/database';
 import { AppError } from '../middlewares/errorHandler';
 import { uploadQueue, UploadJobData } from '../queues/uploadQueue';
-import fs from 'fs';
 import path from 'path';
+import { storageService } from './storageService';
 
 export class DocumentService {
     async findByTier(tierId: string) {
@@ -121,31 +121,28 @@ export class DocumentService {
             },
         });
 
-        // 2. Update document with snapshot content (new version)
-        // Note: We use the snapshot's file path. If we wanted full separation, we'd copy the file.
-        // For now, sharing the file path is efficient, but deleting one might affect others if not careful.
-        // A robust system would copy the file to a new path. ensuring immutability.
-        // Let's copy the file to a new path to be safe and consistent with "new version" logic.
+        // 2. Copy the file to a new object key in storage
+        const snapshotFileExists = await storageService.exists(snapshot.filePath);
+        if (!snapshotFileExists) {
+            throw new AppError(500, 'Original snapshot file missing in storage');
+        }
 
         const newFileName = `revert_${Date.now()}_${snapshot.fileName}`;
-        const newFilePath = path.join(path.dirname(snapshot.filePath), newFileName);
+        const dirKey = path.dirname(snapshot.filePath).replace(/\\/g, '/');
+        const newObjectKey = `${dirKey}/${newFileName}`;
 
-        if (fs.existsSync(snapshot.filePath)) {
-            await fs.promises.copyFile(snapshot.filePath, newFilePath);
-        } else {
-            throw new AppError(500, 'Original snapshot file missing on disk');
-        }
+        await storageService.copy(snapshot.filePath, newObjectKey);
 
         const updatedDoc = await prisma.document.update({
             where: { id: documentId },
             data: {
                 title: snapshot.title,
                 fileName: snapshot.fileName,
-                filePath: newFilePath,
+                filePath: newObjectKey,
                 mimeType: snapshot.mimeType,
                 fileSize: snapshot.fileSize,
                 currentVersion: doc.currentVersion + 1,
-                uploadedById: userId, // The user performing the revert is the "uploader" of this new version
+                uploadedById: userId,
                 changelog: `Reverted to version ${snapshot.version}`,
             },
         });
@@ -173,15 +170,16 @@ export class DocumentService {
         };
     }
 
-    async getFilePath(id: string) {
+    async getFileInfo(id: string) {
         const doc = await this.findById(id);
 
-        if (!fs.existsSync(doc.filePath)) {
-            throw new AppError(404, 'File not found on disk');
+        const fileExists = await storageService.exists(doc.filePath);
+        if (!fileExists) {
+            throw new AppError(404, 'File not found in storage');
         }
 
         return {
-            filePath: doc.filePath,
+            objectKey: doc.filePath,
             fileName: doc.fileName,
             mimeType: doc.mimeType,
         };
@@ -190,9 +188,11 @@ export class DocumentService {
     async delete(id: string) {
         const doc = await this.findById(id);
 
-        // Delete file from disk
-        if (fs.existsSync(doc.filePath)) {
-            fs.unlinkSync(doc.filePath);
+        // Delete file from storage
+        try {
+            await storageService.delete(doc.filePath);
+        } catch {
+            // Ignore storage deletion errors (file may already be gone)
         }
 
         return prisma.document.delete({ where: { id } });
