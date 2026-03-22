@@ -1,5 +1,6 @@
 import { ProjectService } from '../src/services/projectService';
 import prisma from '../src/config/database';
+import { storageService } from '../src/services/storageService';
 
 // Mock Prisma
 jest.mock('../src/config/database', () => ({
@@ -12,6 +13,16 @@ jest.mock('../src/config/database', () => ({
             update: jest.fn(),
             delete: jest.fn(),
         },
+        documentVersion: {
+            findMany: jest.fn(),
+        },
+    },
+}));
+
+// Mock storageService
+jest.mock('../src/services/storageService', () => ({
+    storageService: {
+        delete: jest.fn(),
     },
 }));
 
@@ -102,12 +113,39 @@ describe('ProjectService', () => {
     });
 
     describe('delete', () => {
-        it('should delete a project', async () => {
+        it('should clean up storage files and delete a project', async () => {
             const existing = { id: '1', name: 'Delete Me' };
+            const mockVersions = [
+                { filePath: 'projects/1/docs/file1.pdf' },
+                { filePath: 'projects/1/docs/file2.docx' },
+            ];
+
             (prisma.project.findUnique as jest.Mock).mockResolvedValue(existing);
+            (prisma.documentVersion.findMany as jest.Mock).mockResolvedValue(mockVersions);
+            (storageService.delete as jest.Mock).mockResolvedValue(undefined);
             (prisma.project.delete as jest.Mock).mockResolvedValue(existing);
 
             const result = await service.delete('1');
+
+            // Verify storage cleanup was called for each file
+            expect(storageService.delete).toHaveBeenCalledTimes(2);
+            expect(storageService.delete).toHaveBeenCalledWith('projects/1/docs/file1.pdf');
+            expect(storageService.delete).toHaveBeenCalledWith('projects/1/docs/file2.docx');
+            expect(prisma.project.delete).toHaveBeenCalledWith({ where: { id: '1' } });
+        });
+
+        it('should still delete project even if storage cleanup fails', async () => {
+            const existing = { id: '1', name: 'Delete Me' };
+            const mockVersions = [{ filePath: 'projects/1/docs/file1.pdf' }];
+
+            (prisma.project.findUnique as jest.Mock).mockResolvedValue(existing);
+            (prisma.documentVersion.findMany as jest.Mock).mockResolvedValue(mockVersions);
+            (storageService.delete as jest.Mock).mockRejectedValue(new Error('File not found'));
+            (prisma.project.delete as jest.Mock).mockResolvedValue(existing);
+
+            await service.delete('1');
+
+            // Should still proceed with project deletion
             expect(prisma.project.delete).toHaveBeenCalledWith({ where: { id: '1' } });
         });
 

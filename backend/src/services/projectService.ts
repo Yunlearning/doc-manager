@@ -1,6 +1,7 @@
 import prisma from '../config/database';
 import { CreateProjectInput, UpdateProjectInput } from '../validators/schemas';
 import { AppError } from '../middlewares/errorHandler';
+import { storageService } from './storageService';
 
 export class ProjectService {
     async findAll() {
@@ -38,6 +39,21 @@ export class ProjectService {
 
     async delete(id: string) {
         await this.findById(id);
+
+        // Clean up all storage files before cascade delete
+        const versions = await prisma.documentVersion.findMany({
+            where: { document: { tier: { projectId: id } } },
+            select: { filePath: true },
+        });
+
+        for (const v of versions) {
+            try {
+                await storageService.delete(v.filePath);
+            } catch {
+                // Ignore — file may already be gone
+            }
+        }
+
         return prisma.project.delete({ where: { id } });
     }
 }
