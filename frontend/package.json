@@ -15,7 +15,7 @@
     "@mui/material": "^7.3.8",
     "@mui/x-tree-view": "^8.27.0",
     "axios": "^1.13.5",
-    "next": "16.1.6",
+    "next": "^16.2.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-dropzone": "^15.0.0",
